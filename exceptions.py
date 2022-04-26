@@ -34,7 +34,7 @@ class UndocumentedStatusError(Exception):
     pass
 
 
-class StateStatusException(Exception):
-    """Exception for state homework status."""
-
-    pass
+# class StateStatusException(Exception):
+#     """Exception for state homework status."""
+#
+#     pass

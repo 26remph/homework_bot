@@ -32,6 +32,7 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 HOMEWORK_STATES = {}
+SENDING_ERRORS_MSG = set()
 
 logging.basicConfig(
     format='%(asctime)s | %(name)s | %(levelname)s | '
@@ -44,7 +45,8 @@ def send_message(bot, message):
     """Отправляет сообщения в чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except BadRequest as e:
+    # except BadRequest as e:
+    except Exception as e:
         raise SendMessageError(e) from e
 
 
@@ -54,30 +56,44 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except ConnectionError as e:
+    # except ConnectionError as e:
+    except Exception as e:
         raise APIResponseError(e) from e
+
 
     if response.status_code != HTTPStatus.OK:
         raise APIResponseError(f'Неожиданный статус ответа: {response}')
 
-    return response
+    return response.json()
 
 
 def check_response(response):
     """Проверят корректность ответа сервиса, и отдает список домашних работ."""
-    data = response.json()
-    if type(data) != dict:
+    #
+    # import json
+    # with open('data_debug.json') as f:
+    #     data = json.load(f)
+    # 
+    # data = response.json()
+    if type(response) != dict:
         raise JSONDataStructureError(
-            f'Принят неожиданный тип данных {type(data)}, ожидается {dict}'
+            f'Принят неожиданный тип данных {type(response)}, ожидается {dict}'
         )
 
     try:
-        homeworks = data['homeworks']
-        current_date = ['current_date']
+        homeworks = response['homeworks']
     except TypeError as e:
         raise JSONDataStructureError(f'Данные не содержат ключа: {e}')
 
-    return homeworks, current_date
+    if not response:
+        raise JSONDataStructureError('Список домашних работ пуст')
+    #
+    # import json
+    # with open('data_debug.json', 'w', encoding='utf-8') as f:
+    #     json.dump(data, f, ensure_ascii=False, indent=4)
+    # logging.debug('json data save')
+    #
+    return homeworks
 
 
 def parse_status(homework):
@@ -94,16 +110,16 @@ def parse_status(homework):
     if not last_status_hw:
         HOMEWORK_STATES[homework_name] = homework_status
         logging.debug(f'Первоначальный статус `{homework_name}` сохранен.')
-        return None
+        return
 
     if last_status_hw == homework_status:
         logging.debug(f'Статус проверки `{homework_name}` не изменился.')
-        return None
+        return
 
     # ...
 
     verdict = homework_status
-
+    HOMEWORK_STATES[homework_name] = homework_status
     # ...
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
@@ -125,6 +141,26 @@ def check_tokens():
     return is_pass
 
 
+def get_hw_date_update(homework):
+    """Преобразуем дату в формат timestamp"""
+    try:
+        date_updated = homework['date_updated']
+        logging.debug(f'date_updated={date_updated}')
+    except KeyError:
+        raise JSONDataStructureError(
+            'Отсутствует ключ словаря `date_updated`'
+        )
+    try:
+        struct_time = time.strptime(date_updated, "%Y-%m-%dT%H:%M:%SZ")
+        logging.debug(f'struct_time={int(time.mktime(struct_time))}')
+    except ValueError:
+        raise JSONDataStructureError(
+            f'Значение даты: {date_updated} не соответствует'
+            f'формату `%Y-%m-%dT%H:%M:%SZ`'
+        )
+
+    return int(time.mktime(struct_time))
+
 # flake8: noqa: C901
 def main():
     """Основная логика работы бота."""
@@ -139,35 +175,52 @@ def main():
 
     while True:
         try:
+            error_msg = ''
             response = get_api_answer(current_timestamp)
-            homeworks, query_time = check_response(response)
-
+            logging.debug(f'response time = {current_timestamp}')
+            homeworks = check_response(response)
             for homework in homeworks:
                 message = parse_status(homework)
                 if message:
-                    current_timestamp = query_time
-                    HOMEWORK_STATES.clear()
+                    current_timestamp = get_hw_date_update(homework)
+                    logging.debug(f'message time = {current_timestamp}')
+                    # HOMEWORK_STATES.clear()
                     send_message(bot, message)
                     logging.info(f'Сообщение: `{message}` успешно отправлено.')
 
                # time.sleep(RETRY_TIME)
         except APIResponseError as e:
-            logging.error(f'Ошибка ответа от сервиса: {e}')
+            error_msg = f'Ошибка ответа от сервиса: {e}'
+            logging.error(error_msg)
         except SendMessageError as e:
-            logging.error(f'Ошибка отправки сообщения: {e}')
+            error_msg = f'Ошибка отправки сообщения боту: {e}'
+            logging.error(error_msg)
         except JSONDataStructureError as e:
-            logging.error(f'Ошибка данных JSON: {e}')
+            error_msg = f'Ошибка данных JSON: {e}'
+            logging.error(error_msg)
         except UndocumentedStatusError as e:
-            logging.error(f'Недокументированный статус домашней работы {e}')
+            error_msg = f'Недокументированный статус домашней работы {e}'
+            logging.error(error_msg)
         # except StateStatusException as e:
         # #     logging.debug(e)
         except Exception as e:
-            logging.error(f'Сбой в работе программы: {e}', exc_info=True)
+            error_msg = f'Сбой в работе программы: {e}'
+            # logging.error(error_msg, exc_info=True)
+            logging.error(error_msg)
             # ...
             # time.sleep(RETRY_TIME)
         # else:
         #     logging.info(f'Сообщение: `{message}` успешно отправлено.')
         # break
+
+        if not (error_msg in SENDING_ERRORS_MSG) and error_msg:
+            try:
+                send_message(bot, error_msg)
+                SENDING_ERRORS_MSG.add(error_msg)
+            except SendMessageError:
+                error_msg = f'Ошибка отправки сообщения боту: `{error_msg}`'
+                logging.error(error_msg)
+
         time.sleep(RETRY_TIME)
 
 # Exception on control breake
