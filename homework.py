@@ -32,6 +32,7 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 HOMEWORK_STATES = {}
+NONAME_HOMEWORK = "NO_NAME_HOMEWORK"
 SENDING_ERRORS_MSG = set()
 
 logging.basicConfig(
@@ -75,15 +76,23 @@ def check_response(response):
     #     data = json.load(f)
     # 
     # data = response.json()
-    if type(response) != dict:
-        raise JSONDataStructureError(
-            f'Принят неожиданный тип данных {type(response)}, ожидается {dict}'
-        )
+    # if type(response) != dict:
+    #     raise JSONDataStructureError(
+    #         f'Принят неожиданный тип данных {type(response)}, ожидается {dict}'
+    #     )
+    if type(response) == list:
+        response = response[0]
 
     try:
         homeworks = response['homeworks']
     except TypeError as e:
         raise JSONDataStructureError(f'Данные не содержат ключа: {e}')
+
+    if type(homeworks) != list:
+        raise JSONDataStructureError(
+            f'Неожиданный тип данных для ключа: `homeworks`, ожидается {list}'
+            f'принят {type(homeworks)}'
+        )
 
     if not response:
         raise JSONDataStructureError('Список домашних работ пуст')
@@ -99,26 +108,41 @@ def check_response(response):
 def parse_status(homework):
     """Извлекает статус проверки домашней работы и возвращает его."""
     # homework_id = homework.get('id')
+    try:
+        homework_status = homework['status']
+    except Exception as e:
+        raise UndocumentedStatusError(f'Отсутствует ключ {e}') from e
+
+    # if not(homework_status in HOMEWORK_STATUSES.keys()):
+    #     raise UndocumentedStatusError(homework_status)
+    try:
+        HOMEWORK_STATUSES[homework_status]
+    except KeyError as e:
+        raise KeyError(homework_status) from e
+        # raise UndocumentedStatusError(homework_status) from e
+
     homework_name = homework.get('homework_name')
-    homework_status = homework.get('status')
+    if homework_name is None:
+        homework_name = NONAME_HOMEWORK
 
-    if not(homework_status in HOMEWORK_STATUSES.keys()):
-        raise UndocumentedStatusError(homework_status)
-        # return None
+    # try:
+    #     homework_name = homework['homework_name']
+    # except Exception as e:
+    #     raise UndocumentedStatusError(f'Отсутствует ключ {e}') from e
 
-    last_status_hw = HOMEWORK_STATES.get(homework_name)
-    if not last_status_hw:
-        HOMEWORK_STATES[homework_name] = homework_status
-        logging.debug(f'Первоначальный статус `{homework_name}` сохранен.')
-        return
+    # last_status_hw = HOMEWORK_STATES.get(homework_name)
+    # if not last_status_hw:
+    #     HOMEWORK_STATES[homework_name] = homework_status
+    #     logging.debug(f'Первоначальный статус `{homework_name}` сохранен.')
+    #     return
 
-    if last_status_hw == homework_status:
+    if HOMEWORK_STATES.get(homework_name) == homework_status:
         logging.debug(f'Статус проверки `{homework_name}` не изменился.')
         return
 
     # ...
 
-    verdict = homework_status
+    verdict = HOMEWORK_STATUSES[homework_status]
     HOMEWORK_STATES[homework_name] = homework_status
     # ...
 
@@ -146,14 +170,14 @@ def get_hw_date_update(homework):
     try:
         date_updated = homework['date_updated']
         logging.debug(f'date_updated={date_updated}')
-    except KeyError:
+    except Exception:
         raise JSONDataStructureError(
             'Отсутствует ключ словаря `date_updated`'
         )
     try:
         struct_time = time.strptime(date_updated, "%Y-%m-%dT%H:%M:%SZ")
         logging.debug(f'struct_time={int(time.mktime(struct_time))}')
-    except ValueError:
+    except Exception:
         raise JSONDataStructureError(
             f'Значение даты: {date_updated} не соответствует'
             f'формату `%Y-%m-%dT%H:%M:%SZ`'
