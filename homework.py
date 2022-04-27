@@ -6,11 +6,9 @@ from http import HTTPStatus
 import requests
 import telegram
 from dotenv import load_dotenv
-from telegram.error import BadRequest
 
 from exceptions import (APIResponseError, JSONDataStructureError,
-                        LoadEnvironmentError, SendMessageError,
-                        UndocumentedStatusError)
+                        LoadEnvironmentError, SendMessageError)
 
 load_dotenv()
 
@@ -131,14 +129,11 @@ def get_hw_date_update(homework):
     """Преобразуем дату в формат timestamp"""
     try:
         date_updated = homework['date_updated']
-        logging.debug(f'date_updated={date_updated}')
     except Exception:
-        raise JSONDataStructureError(
-            'Отсутствует ключ словаря `date_updated`'
-        )
+        raise JSONDataStructureError('Отсутствует ключ словаря `date_updated`')
+
     try:
         struct_time = time.strptime(date_updated, "%Y-%m-%dT%H:%M:%SZ")
-        logging.debug(f'struct_time={int(time.mktime(struct_time))}')
     except Exception:
         raise JSONDataStructureError(
             f'Значение даты: {date_updated} не соответствует'
@@ -146,6 +141,7 @@ def get_hw_date_update(homework):
         )
 
     return int(time.mktime(struct_time))
+
 
 # flake8: noqa: C901
 def main():
@@ -157,57 +153,55 @@ def main():
     # current_timestamp = int(time.time())
     current_timestamp = 1
 
+    pending_messages = []
+
     while True:
         try:
-            error_msg = ''
+            except_msg = ""
             response = get_api_answer(current_timestamp)
-            logging.debug(f'response time = {current_timestamp}')
             homeworks = check_response(response)
-            for homework in homeworks:
-                message = parse_status(homework)
+            for hw in homeworks:
+                message = parse_status(hw)
                 if message:
-                    current_timestamp = get_hw_date_update(homework)
-                    logging.debug(f'message time = {current_timestamp}')
-                    # HOMEWORK_STATES.clear()
-                    send_message(bot, message)
-                    logging.info(f'Сообщение: `{message}` успешно отправлено.')
+                    current_timestamp = get_hw_date_update(hw)
+                    pending_messages.append(message)
 
         except APIResponseError as e:
-            error_msg = f'Ошибка ответа от сервиса: {e}'
-            logging.error(error_msg)
-        except SendMessageError as e:
-            error_msg = f'Ошибка отправки сообщения боту: {e}'
-            logging.error(error_msg)
+            except_msg = f'Ошибка ответа от сервиса: {e}'
+            logging.error(except_msg)
         except JSONDataStructureError as e:
-            error_msg = f'Ошибка данных JSON: {e}'
-            logging.error(error_msg)
+            except_msg = f'Ошибка данных JSON: {e}'
+            logging.error(e)
         except KeyError as e:
-            error_msg = f'Ошибка ключей словаря: {e}'
-            logging.error(error_msg)
+            except_msg = f'Ошибка ключей словаря: {e}'
+            logging.error(except_msg)
         except Exception as e:
-            error_msg = f'Сбой в работе программы: {e}'
-            # logging.error(error_msg, exc_info=True)
-            logging.error(error_msg)
-        # else:
-        #     logging.info(f'Сообщение: `{message}` успешно отправлено.')
+            except_msg = f'Сбой в работе программы: {e}'
+            logging.error(except_msg, exc_info=True)
 
-        if not (error_msg in SENDING_ERRORS_MSG) and error_msg:
+        if not (except_msg in SENDING_ERRORS_MSG) and except_msg:
+            pending_messages.append(except_msg)
+            SENDING_ERRORS_MSG.add(except_msg)
+
+        _pending_messages = pending_messages[:]
+        for msg in pending_messages:
             try:
-                send_message(bot, error_msg)
-                SENDING_ERRORS_MSG.add(error_msg)
+                send_message(bot, msg)
+                logging.info(f'Сообщение: `{msg}` успешно отправлено.')
+                _pending_messages.remove(msg)
             except SendMessageError:
-                error_msg = f'Ошибка отправки сообщения боту: `{error_msg}`'
-                logging.error(error_msg)
+                logging.error(f'Ошибка отправки сообщения боту: `{msg}`')
+
+        pending_messages = _pending_messages[:]
 
         time.sleep(RETRY_TIME)
 
-# Exception on control breake
-
 
 if __name__ == '__main__':
-    # try:
-    main()
-    # except KeyboardInterrupt:
-    #     print('Interrupt')
-    #     sys.exit(0)
-
+    print('\nStarting https://t.me/vidim_assistant_yashabot'
+          '\n(Quit the bot with CONTROL-C.)')
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('\nShutdown yashabot ...')
+        os._exit(0)
