@@ -17,7 +17,6 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_TIME = 600
-# RETRY_TIME = 30
 
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
@@ -29,7 +28,6 @@ HOMEWORK_STATUSES = {
 }
 HOMEWORK_STATES = {}
 NO_NAME_HOME_WORK = "NO_NAME_HOME_WORK"
-SENDING_ERRORS_MSG = set()
 
 logging.basicConfig(
     format='%(asctime)s | %(name)s | %(levelname)s | '
@@ -82,8 +80,9 @@ def check_response(response):
             f'принят {type(homeworks)}'
         )
 
-    if not response:
+    if not homeworks:
         raise JSONDataStructureError('Список домашних работ пуст')
+
     return homeworks
 
 
@@ -151,14 +150,15 @@ def main():
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-    # current_timestamp = 1
 
     pending_messages = []
+    sending_errors_msg = []
 
     while True:
         try:
             except_msg = ""
             response = get_api_answer(current_timestamp)
+            logging.info(f'Получен ответ от сервиса: {response}')
             homeworks = check_response(response)
             for hw in homeworks:
                 message = parse_status(hw)
@@ -179,9 +179,8 @@ def main():
             except_msg = f'Сбой в работе программы: {e}'
             logging.error(except_msg, exc_info=True)
 
-        if not (except_msg in SENDING_ERRORS_MSG) and except_msg:
+        if not (except_msg in sending_errors_msg) and except_msg:
             pending_messages.append(except_msg)
-            SENDING_ERRORS_MSG.add(except_msg)
 
         _pending_messages = pending_messages[:]
         for msg in pending_messages:
@@ -189,6 +188,8 @@ def main():
                 send_message(bot, msg)
                 logging.info(f'Сообщение: `{msg}` успешно отправлено.')
                 _pending_messages.remove(msg)
+                if msg == except_msg:
+                    sending_errors_msg.append(except_msg)
             except SendMessageError:
                 logging.error(f'Ошибка отправки сообщения боту: `{msg}`')
 
