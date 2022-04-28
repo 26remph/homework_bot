@@ -9,30 +9,20 @@ from dotenv import load_dotenv
 
 from exceptions import (APIResponseError, JSONDataStructureError,
                         LoadEnvironmentError, SendMessageError)
+from settings import (ENDPOINT, HOMEWORK_STATES, HOMEWORK_STATUSES,
+                      NO_NAME_HOME_WORK, RETRY_TIME)
 
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-RETRY_TIME = 600
-
-ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
-HOMEWORK_STATUSES = {
-    'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
-    'reviewing': 'Работа взята на проверку ревьюером.',
-    'rejected': 'Работа проверена: у ревьюера есть замечания.'
-}
-HOMEWORK_STATES = {}
-NO_NAME_HOME_WORK = "NO_NAME_HOME_WORK"
 
 logging.basicConfig(
     format='%(asctime)s | %(name)s | %(levelname)s | '
            '%(funcName)s | %(message)s',
-    level=logging.DEBUG,
+    level=logging.INFO,
 )
 
 
@@ -40,7 +30,7 @@ def send_message(bot, message):
     """Отправляет сообщения в чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except Exception as e:
+    except telegram.error.TelegramError as e:
         raise SendMessageError(e) from e
 
 
@@ -56,23 +46,23 @@ def get_api_answer(current_timestamp):
     if response.status_code != HTTPStatus.OK:
         raise APIResponseError(f'Неожиданный статус ответа: {response}')
 
-    return response.json()
+    try:
+        response = response.json()
+    except Exception as e:
+        raise APIResponseError(f'неожиданный форат данных {e}') from e
+
+    return response
 
 
 def check_response(response):
     """Проверят корректность ответа сервиса, и отдает список домашних работ."""
-    if type(response) == list:
-        response = response[0]
-
     if type(response) != dict:
-        raise JSONDataStructureError(
-            f'Принят неожиданный тип данных {type(response)}, ожидается {dict}'
+        raise TypeError(
+            f'Неожиданный тип данных {type(response)}, ожидается {dict}'
         )
-
-    try:
-        homeworks = response['homeworks']
-    except TypeError as e:
-        raise JSONDataStructureError(f'Данные не содержат ключа: {e}')
+    homeworks = response.get('homeworks')
+    if homeworks is None:
+        raise JSONDataStructureError('Данные не содержат ключа: `homeworks`')
 
     if type(homeworks) != list:
         raise JSONDataStructureError(
@@ -88,11 +78,12 @@ def check_response(response):
 
 def parse_status(homework):
     """Извлекает статус проверки домашней работы и возвращает его."""
-    try:
-        homework_status = homework['status']
-        HOMEWORK_STATUSES[homework_status]
-    except KeyError as e:
-        raise KeyError(f'Отсутствует ключ {e}') from e
+    homework_status = homework.get('status')
+    if homework_status is None:
+        raise KeyError('Отсутствует ключ `status`')
+
+    if HOMEWORK_STATUSES[homework_status] is None:
+        raise KeyError('Неожиданный статус домашней работы')
 
     homework_name = homework.get('homework_name')
     if homework_name is None:
@@ -110,25 +101,13 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверяет доступность идентификационных переменных."""
-    is_pass = True if (PRACTICUM_TOKEN
-                       and TELEGRAM_TOKEN
-                       and TELEGRAM_CHAT_ID
-                       ) else False
-
-    if not is_pass:
-        id_vars = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
-
-        [logging.critical(f'Переменная `{id_var}` не определена')
-         for id_var in id_vars if not os.getenv(id_var)]
-
-    return is_pass
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
 
 
 def get_hw_date_update(homework):
-    """Преобразуем дату в формат timestamp"""
-    try:
-        date_updated = homework['date_updated']
-    except Exception:
+    """Преобразуем дату в формат timestamp."""
+    date_updated = homework.get('date_updated')
+    if date_updated is None:
         raise JSONDataStructureError('Отсутствует ключ словаря `date_updated`')
 
     try:
@@ -142,8 +121,7 @@ def get_hw_date_update(homework):
     return int(time.mktime(struct_time))
 
 
-# flake8: noqa: C901
-def main():
+def main():  # noqa: C901
     """Основная логика работы бота."""
     if not check_tokens():
         raise LoadEnvironmentError('Ошибка загрузки переменных окружения')
@@ -158,7 +136,8 @@ def main():
         try:
             except_msg = ""
             response = get_api_answer(current_timestamp)
-            logging.info(f'Получен ответ от сервиса: {response}')
+            logging.debug(f'Время запроса: {response}')
+            logging.debug(f'Получен ответ от сервиса: {response}')
             homeworks = check_response(response)
             for hw in homeworks:
                 message = parse_status(hw)
@@ -174,6 +153,9 @@ def main():
             logging.error(e)
         except KeyError as e:
             except_msg = f'Ошибка ключей словаря: {e}'
+            logging.error(except_msg)
+        except TypeError as e:
+            except_msg = f'Ошибка типа данных: {e}'
             logging.error(except_msg)
         except Exception as e:
             except_msg = f'Сбой в работе программы: {e}'
