@@ -82,7 +82,7 @@ def parse_status(homework):
     if homework_status is None:
         raise KeyError('Отсутствует ключ `status`')
 
-    if HOMEWORK_STATUSES[homework_status] is None:
+    if HOMEWORK_STATUSES.get(homework_status) is None:
         raise KeyError('Неожиданный статус домашней работы')
 
     homework_name = homework.get('homework_name')
