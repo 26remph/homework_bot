@@ -6,6 +6,7 @@
     <span>bot telegram:</span>
     <a href="https://t.me/vidim_assistant_yashabot">https://t.me/vidim_assistant_yashabot</a>
 </div>
+<br>
 
 Телеграм-бот для отслеживания статуса проверки домашней работы на Яндекс.Практикум.
 Присылает сообщения, когда статус изменен - взято в проверку, есть замечания, зачтено.
