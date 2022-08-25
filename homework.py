@@ -49,7 +49,7 @@ def get_api_answer(current_timestamp):
     try:
         response = response.json()
     except Exception as e:
-        raise APIResponseError(f'неожиданный форат данных {e}') from e
+        raise APIResponseError(f'неожиданный формат данных {e}') from e
 
     return response
 
