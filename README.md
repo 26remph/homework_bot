@@ -4,7 +4,7 @@
         Telegram-bot | yasha
     </h1>
     <span>bot telegram:</span>
-    <a>https://t.me/vidim_assistant_yashabot</a>
+    <a href="https://t.me/vidim_assistant_yashabot">https://t.me/vidim_assistant_yashabot</a>
 </div>
 
 Телеграм-бот для отслеживания статуса проверки домашней работы на Яндекс.Практикум.
